@@ -1,0 +1,43 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfplan
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# tfvars: ignore real values, keep tracked examples + the dev reference
+*.tfvars
+*.auto.tfvars
+!*.example.tfvars
+!*.example.auto.tfvars
+!terraform/environments/dev/dev.tfvars
+
+# Secrets / local creds
+.env
+.env.*
+kubeconfig
+*.pem
+*.key
+floci.auto.tfvars
+
+# Go
+dist/
+bin/
+*.test
+*.out
+coverage.txt
+
+# Node (examples)
+node_modules/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
