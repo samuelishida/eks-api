@@ -1,0 +1,14 @@
+{
+  "name": "node-service",
+  "version": "1.0.0",
+  "description": "Reference-only Node.js sample service (not deployed).",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=26"
+  },
+  "private": true,
+  "comment": "Dependency-free on purpose so `npm ci` is fast. The Dockerfile uses dumb-init as the init process (must be apk-added in the image; see Dockerfile note)."
+}

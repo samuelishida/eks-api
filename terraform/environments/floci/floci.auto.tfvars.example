@@ -1,0 +1,8 @@
+# Example shape of the gitignored `floci.auto.tfvars`.
+#
+# Copy to `floci.auto.tfvars` and fill in the REAL IAM access key / secret
+# key for the Floci EKS auth webhook. `test`/`test` is rejected by Floci's
+# EKS webhook — use actual (emulated) IAM credentials.
+
+floci_access_key = "AKIA..."
+floci_secret_key = "..."
