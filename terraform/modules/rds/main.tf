@@ -93,6 +93,7 @@ module "rds" {
   engine_version = var.engine_version
   db_name        = var.db_name
   username       = var.username
+  instance_class = var.instance_class
   password_wo    = random_password.db.result
 
   allocated_storage     = var.allocated_storage
@@ -115,6 +116,10 @@ module "rds" {
   performance_insights_enabled          = var.performance_insights
   performance_insights_kms_key_id       = var.performance_insights ? aws_kms_key.rds.arn : null
   performance_insights_retention_period = var.performance_insights ? 7 : null
+
+  # The wrapper does not manage parameter groups; the registry module's default
+  # (create=true, family=null) is invalid. Opt out by default.
+  create_db_parameter_group = var.create_db_parameter_group
 
   tags = {
     Name = var.name

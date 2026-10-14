@@ -40,7 +40,12 @@ resource "aws_iam_role" "lbc" {
 }
 
 # AWS-managed policy with the core LBC permissions (ELB/EC2 management).
+# Floci's IAM emulator has NO AWS-managed policies (arn:aws:iam::aws:policy/...),
+# so this is guarded off for floci (lbc_create_aws_managed_policy=false). The
+# inline policy below already carries the LBC actions, so shape is preserved.
 resource "aws_iam_role_policy_attachment" "lbc_aws_managed" {
+  count = var.lbc_create_aws_managed_policy ? 1 : 0
+
   role       = aws_iam_role.lbc.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSLoadBalancerControllerPolicy"
 }

@@ -20,14 +20,34 @@ provider "aws" {
   skip_credentials_validation = true
   skip_metadata_api_check     = true
 
+  # Route EVERY service the registry modules touch to Floci. In provider v6 a
+  # service omitted here falls back to REAL AWS, so our emulator creds get sent
+  # to iam.amazonaws.com / logs.amazonaws.com and rejected (InvalidClientTokenId /
+  # UnrecognizedClientException). iam + logs were the ones that bit us.
   endpoints {
-    eks = "http://127.0.0.1:4566"
-    ecr = "http://127.0.0.1:4566"
-    rds = "http://127.0.0.1:4566"
-    ec2 = "http://127.0.0.1:4566"
-    kms = "http://127.0.0.1:4566"
-    sts = "http://127.0.0.1:4566"
-    s3  = "http://127.0.0.1:4566"
+    eks            = "http://127.0.0.1:4566"
+    ecr            = "http://127.0.0.1:4566"
+    ecrpublic      = "http://127.0.0.1:4566"
+    rds            = "http://127.0.0.1:4566"
+    ec2            = "http://127.0.0.1:4566"
+    kms            = "http://127.0.0.1:4566"
+    sts            = "http://127.0.0.1:4566"
+    s3             = "http://127.0.0.1:4566"
+    iam            = "http://127.0.0.1:4566"
+    logs           = "http://127.0.0.1:4566"
+    events         = "http://127.0.0.1:4566"
+    sns            = "http://127.0.0.1:4566"
+    cloudwatch     = "http://127.0.0.1:4566"
+    ssm            = "http://127.0.0.1:4566"
+    secretsmanager = "http://127.0.0.1:4566"
+    sqs            = "http://127.0.0.1:4566"
+    autoscaling    = "http://127.0.0.1:4566"
+    elasticache    = "http://127.0.0.1:4566"
+    redshift       = "http://127.0.0.1:4566"
+    ds             = "http://127.0.0.1:4566"
+    identitystore  = "http://127.0.0.1:4566"
+    rolesanywhere  = "http://127.0.0.1:4566"
+    outposts       = "http://127.0.0.1:4566"
   }
 }
 
@@ -53,6 +73,11 @@ module "eks" {
   asg_max             = var.asg_max
   asg_desired         = var.asg_desired
   logging             = var.cluster_log_types
+
+  # Floci-only guard: Floci does not serve the optimized-AMI SSM parameter, so
+  # disable the SSM lookup (node group uses the default AL2023 AMI type). Real
+  # envs keep the wrapper default (true) — no behavior change.
+  use_latest_ami_release_version = false
 }
 
 # kubernetes provider: writes the DB-password Secret (Inc 3). Uses the static

@@ -20,6 +20,15 @@ variable "db_name" {
   default     = "app"
 }
 
+# The registry RDS module requires `instance_class` (default null is invalid).
+# `db.t3.micro` is the smallest general-purpose class — fine for dev/floci;
+# prod should override with a larger class.
+variable "instance_class" {
+  description = "RDS instance class."
+  type        = string
+  default     = "db.t3.micro"
+}
+
 variable "username" {
   description = "Master username."
   type        = string
@@ -64,6 +73,17 @@ variable "backup_retention_period" {
 
 variable "performance_insights" {
   description = "Enable Performance Insights (prod)."
+  type        = bool
+  default     = false
+}
+
+# The registry RDS module defaults `create_db_parameter_group = true` with
+# `family = null`, which fails (the `aws_db_parameter_group` resource requires
+# `family`). This wrapper never manages parameter groups, so default to not
+# creating one (the instance uses the engine default parameter group). An env
+# that wants a custom parameter group can set this true AND pass `family`.
+variable "create_db_parameter_group" {
+  description = "Create a DB parameter group (requires `family` to be set)."
   type        = bool
   default     = false
 }

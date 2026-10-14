@@ -69,6 +69,15 @@ module "eks" {
       max_size       = var.asg_max
       desired_size   = var.asg_desired
 
+      # Pin the node-group k8s version so the registry module does NOT create
+      # the `aws_eks_cluster_versions` data source (its count depends on the
+      # cluster and cannot be resolved at plan time).
+      kubernetes_version = var.kubernetes_version
+
+      # Floci does not serve the optimized-AMI SSM parameter; disable the SSM
+      # lookup there (real envs keep the default true).
+      use_latest_ami_release_version = var.use_latest_ami_release_version
+
       # Nodes in the private subnets only (no public IP on nodes).
       subnet_ids = var.private_subnets
 
