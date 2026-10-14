@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -77,7 +78,7 @@ type Item struct {
 // implementation is *DB; tests use a stub.
 type ItemStore interface {
 	Ping(ctx context.Context) error
-	ListItems(ctx context.Context) ([]Item, error)
+	ListItems(ctx context.Context, limit, offset int) ([]Item, error)
 	InsertItem(ctx context.Context, name string) (Item, error)
 	GetItem(ctx context.Context, id int64) (Item, error)
 	UpdateItem(ctx context.Context, id int64, name string) (Item, error)
@@ -86,8 +87,10 @@ type ItemStore interface {
 
 var _ ItemStore = (*DB)(nil)
 
-func (d *DB) ListItems(ctx context.Context) ([]Item, error) {
-	rows, err := d.pool.Query(ctx, `SELECT id, name, created_at FROM items ORDER BY id`)
+func (d *DB) ListItems(ctx context.Context, limit, offset int) ([]Item, error) {
+	rows, err := d.pool.Query(ctx,
+		`SELECT id, name, created_at FROM items ORDER BY id LIMIT $1 OFFSET $2`,
+		limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("db: list items: %w", err)
 	}
@@ -123,6 +126,9 @@ func (d *DB) GetItem(ctx context.Context, id int64) (Item, error) {
 	err := d.pool.QueryRow(ctx,
 		`SELECT id, name, created_at FROM items WHERE id = $1`, id,
 	).Scan(&it.ID, &it.Name, &it.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Item{}, ErrNotFound
+	}
 	if err != nil {
 		return Item{}, fmt.Errorf("db: get item: %w", err)
 	}
@@ -134,6 +140,9 @@ func (d *DB) UpdateItem(ctx context.Context, id int64, name string) (Item, error
 	err := d.pool.QueryRow(ctx,
 		`UPDATE items SET name = $1 WHERE id = $2 RETURNING id, name, created_at`, name, id,
 	).Scan(&it.ID, &it.Name, &it.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Item{}, ErrNotFound
+	}
 	if err != nil {
 		return Item{}, fmt.Errorf("db: update item: %w", err)
 	}

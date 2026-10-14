@@ -47,10 +47,13 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: DATABASE_URL scheme %q is not postgres/postgresql", u.Scheme)
 		}
 		host, port, err := net.SplitHostPort(u.Host)
-		if err != nil {
+		if err != nil && u.Host != "" {
 			return Config{}, fmt.Errorf("config: DATABASE_URL host %q: %w", u.Host, err)
 		}
 		cfg.DBHost = host
+		if port == "" {
+			port = "5432" // Postgres default when the URL omits the port
+		}
 		cfg.DBPort, err = strconv.Atoi(port)
 		if err != nil {
 			return Config{}, fmt.Errorf("config: DATABASE_URL port %q: %w", port, err)
@@ -84,6 +87,9 @@ func Load() (Config, error) {
 	}
 	if cfg.DBPort < 1 || cfg.DBPort > 65535 {
 		return Config{}, fmt.Errorf("config: DB port %d out of range", cfg.DBPort)
+	}
+	if cfg.DBName == "" {
+		return Config{}, errors.New("config: DB name is required (set DB_NAME or a database path in DATABASE_URL)")
 	}
 	return cfg, nil
 }

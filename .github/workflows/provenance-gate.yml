@@ -6,6 +6,10 @@ name: provenance-gate
 # two parents (the previous main tip + the PR head), while a direct push to
 # main produces a commit with a single parent. Checking the parent count is
 # deterministic and needs no API access, so it is the primary gate.
+#
+# NOTE: this gate REQUIRES the merge-commit merge strategy. Squash and
+# rebase merges produce single-parent commits on main and are rejected —
+# keep "Create merge commits" enabled in the branch protection settings.
 on:
   push:
     branches: [main]

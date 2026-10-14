@@ -3,6 +3,9 @@ name: deploy
 # Dev promotion: when a build on main succeeds, open (or update) a PR that
 # bumps charts/api/values-dev.yaml image.tag to the built SHA. The PR is the
 # review gate; staging/prod are promoted the same way from separate PRs.
+#
+# No AWS credentials are needed here: the only side effects are a git push
+# and a PR, both covered by GITHUB_TOKEN.
 on:
   workflow_run:
     workflows: [build]
@@ -11,24 +14,21 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  id-token: write
 
 jobs:
   bump-dev-tag:
     # No-op (not an error) for any run that is not a successful build of main.
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
+    # Serialize deploys: a newer run supersedes an in-flight one for the same SHA.
+    concurrency:
+      group: deploy-dev-bump
+      cancel-in-progress: true
     steps:
       - name: Checkout the built SHA
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: us-east-1
 
       - name: Bump dev image tag and open/update PR
         env:
@@ -40,21 +40,21 @@ jobs:
           BRANCH="chore/dev-bump-${SHA}"
           FILE=charts/api/values-dev.yaml
 
-          # Idempotency: if a PR with this title already exists, force-update
-          # its branch instead of opening a duplicate.
+          # Idempotency: if a PR with this title already exists, update its
+          # branch instead of opening a duplicate.
           EXISTING_PR_URL="$(gh pr list --state open --search "${PR_TITLE}" --json url --jq '.[0].url // empty')"
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           if [[ -n "$EXISTING_PR_URL" ]]; then
-            echo "PR already exists — force-updating branch: $EXISTING_PR_URL"
+            echo "PR already exists — updating branch: $EXISTING_PR_URL"
             git checkout -B "$BRANCH"
             # Rewrite image.tag to the new SHA (file may already carry an older SHA).
-            sed -i -E "s|^([[:space:]]*tag:[[:space:]]*)\"?[0-9a-fA-F]+\"?|\1\"${SHA}\"|" "$FILE"
+            sed -i -E "s|^([[:space:]]*tag:[[:space:]]*)\"?[0-9a-zA-Z._-]+\"?|\1\"${SHA}\"|" "$FILE"
             git add "$FILE"
             git commit -m "$PR_TITLE" --allow-empty
-            git push --force-with-lease origin "$BRANCH"
+            git push origin "$BRANCH"
           else
             git checkout -B "$BRANCH"
             # Default tag is 'latest' (unquoted) in values.yaml; values-dev.yaml

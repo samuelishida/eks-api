@@ -1,7 +1,9 @@
-# staging: two replicas, external ALB, no TLS.
+# staging: two replicas, external ALB with TLS (ACM cert in us-east-1).
 replicas: 2
 
 ingress:
   host: "api-staging.example.com"
-  tls: false
+  tls: true
   scheme: external
+  # Placeholder ACM certificate ARN — replace with the real cert from terraform.
+  certArn: "arn:aws:acm:us-east-1:123456789012:certificate/PLACEHOLDER"

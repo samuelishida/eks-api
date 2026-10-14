@@ -1,7 +1,7 @@
 # api-dev — Application for the api chart in the api-dev namespace.
 #
-# Synced by the LBC first (see lbc.yaml): the ALB Ingress this chart creates
-# is reconciled by the AWS Load Balancer Controller.
+# Synced by ArgoCD (see argocd-project.yaml): the ALB Ingress this chart
+# creates is reconciled by the AWS Load Balancer Controller (lbc.yaml).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

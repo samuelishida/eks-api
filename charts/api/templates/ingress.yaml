@@ -7,7 +7,6 @@ metadata:
   labels:
     {{- include "api.labels" . | nindent 4 }}
   annotations:
-    kubernetes.io/ingress.class: alb
     alb.ingress.kubernetes.io/scheme: {{ .Values.ingress.scheme }}
     alb.ingress.kubernetes.io/target-type: ip
     {{- if .Values.ingress.tls }}
@@ -23,9 +22,10 @@ metadata:
     {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
-  {{- if .Values.ingress.host }}
   rules:
+    {{- if .Values.ingress.host }}
     - host: {{ .Values.ingress.host }}
+    {{- end }}
       http:
         paths:
           - path: /
@@ -35,22 +35,10 @@ spec:
                 name: {{ include "api.fullname" . }}
                 port:
                   name: http
-  {{- else }}
-  rules:
-    - http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "api.fullname" . }}
-                port:
-                  name: http
-  {{- end }}
   {{- if .Values.ingress.tls }}
   tls:
     - hosts:
         - {{ .Values.ingress.host }}
-      secretName: api-tls
+      secretName: {{ .Values.ingress.tlsSecretName }}
   {{- end }}
 {{- end }}

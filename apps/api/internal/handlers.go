@@ -3,6 +3,7 @@ package internal
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -50,9 +51,21 @@ func (h *Handlers) Readyz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// ListItems returns all items.
+// listDefaultLimit is the page size when the client does not ask for one;
+// listMaxLimit caps any requested page so a large table cannot exhaust a replica.
+const (
+	listDefaultLimit = 100
+	listMaxLimit     = 100
+)
+
+// ListItems returns one page of items. Clients pass ?limit=N&offset=M; limit
+// is capped at listMaxLimit.
 func (h *Handlers) ListItems(w http.ResponseWriter, r *http.Request) {
-	items, err := h.Store.ListItems(r.Context())
+	limit, offset, ok := parseListParams(w, r)
+	if !ok {
+		return
+	}
+	items, err := h.Store.ListItems(r.Context(), limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list items")
 		return
@@ -60,12 +73,39 @@ func (h *Handlers) ListItems(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
+// parseListParams reads and validates ?limit and ?offset, writing a 400 on
+// invalid values. Defaults: limit=listDefaultLimit, offset=0.
+func parseListParams(w http.ResponseWriter, r *http.Request) (int, int, bool) {
+	q := r.URL.Query()
+	limit, offset := listDefaultLimit, 0
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, "limit must be a positive integer")
+			return 0, 0, false
+		}
+		limit = n
+	}
+	if limit > listMaxLimit {
+		limit = listMaxLimit
+	}
+	if v := q.Get("offset"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			writeError(w, http.StatusBadRequest, "offset must be a non-negative integer")
+			return 0, 0, false
+		}
+		offset = n
+	}
+	return limit, offset, true
+}
+
 // CreateItem creates an item from a {"name": ...} body.
 func (h *Handlers) CreateItem(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -108,7 +148,7 @@ func (h *Handlers) UpdateItem(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}

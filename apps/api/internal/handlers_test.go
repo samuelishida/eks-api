@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -26,10 +28,22 @@ func newStubStore() *stubStore {
 
 func (s *stubStore) Ping(ctx context.Context) error { return s.pingErr }
 
-func (s *stubStore) ListItems(ctx context.Context) ([]Item, error) {
-	items := make([]Item, 0, len(s.items))
-	for _, it := range s.items {
-		items = append(items, it)
+func (s *stubStore) ListItems(ctx context.Context, limit, offset int) ([]Item, error) {
+	ids := make([]int64, 0, len(s.items))
+	for id := range s.items {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	if offset >= len(ids) {
+		return []Item{}, nil
+	}
+	end := len(ids)
+	if offset+limit < end {
+		end = offset + limit
+	}
+	items := make([]Item, 0, end-offset)
+	for _, id := range ids[offset:end] {
+		items = append(items, s.items[id])
 	}
 	return items, nil
 }
@@ -65,6 +79,29 @@ func (s *stubStore) DeleteItem(ctx context.Context, id int64) error {
 	}
 	delete(s.items, id)
 	return nil
+}
+
+// wrappedNoRowsStore simulates the real *DB layer: GetItem/UpdateItem
+// receive pgx.ErrNoRows from the pool and wrap it before returning.
+// The handlers must still surface a 404 (errors.Is through the wrap).
+type wrappedNoRowsStore struct {
+	*stubStore
+}
+
+func (s *wrappedNoRowsStore) GetItem(ctx context.Context, id int64) (Item, error) {
+	it, err := s.stubStore.GetItem(ctx, id)
+	if err != nil {
+		return Item{}, fmt.Errorf("db: get item: %w", err)
+	}
+	return it, nil
+}
+
+func (s *wrappedNoRowsStore) UpdateItem(ctx context.Context, id int64, name string) (Item, error) {
+	it, err := s.stubStore.UpdateItem(ctx, id, name)
+	if err != nil {
+		return Item{}, fmt.Errorf("db: update item: %w", err)
+	}
+	return it, nil
 }
 
 func newTestRouter(store ItemStore) *chi.Mux {
@@ -207,6 +244,60 @@ func TestHandlers(t *testing.T) {
 			r.ServeHTTP(rec, req)
 			if rec.Code != http.StatusNotFound {
 				t.Fatalf("%s %s: got %d, want 404", tc.method, tc.path, rec.Code)
+			}
+		}
+	})
+
+	t.Run("wrapped pgx.ErrNoRows maps to 404, not 500", func(t *testing.T) {
+		store := &wrappedNoRowsStore{stubStore: newStubStore()}
+		r := newTestRouter(store)
+
+		for _, tc := range []struct {
+			method string
+			path   string
+			body   string
+		}{
+			{http.MethodGet, "/api/v1/items/1", ""},
+			{http.MethodPut, "/api/v1/items/1", `{"name":"x"}`},
+		} {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			rec := httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("%s %s: got %d, want 404", tc.method, tc.path, rec.Code)
+			}
+		}
+	})
+
+	t.Run("list pagination: limit/offset and 400s", func(t *testing.T) {
+		store := newStubStore()
+		for i := 1; i <= 5; i++ {
+			if _, err := store.InsertItem(context.Background(), "n"+string(rune('0'+i))); err != nil {
+				t.Fatal(err)
+			}
+		}
+		r := newTestRouter(store)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/items?limit=2&offset=1", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list: got %d, want 200", rec.Code)
+		}
+		var items []Item
+		if err := json.NewDecoder(rec.Body).Decode(&items); err != nil {
+			t.Fatalf("list: decode: %v", err)
+		}
+		if len(items) != 2 || items[0].ID != 2 || items[1].ID != 3 {
+			t.Fatalf("list: unexpected page %+v", items)
+		}
+
+		for _, path := range []string{"/api/v1/items?limit=0", "/api/v1/items?limit=abc", "/api/v1/items?offset=-1"} {
+			req = httptest.NewRequest(http.MethodGet, path, nil)
+			rec = httptest.NewRecorder()
+			r.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("list %s: got %d, want 400", path, rec.Code)
 			}
 		}
 	})

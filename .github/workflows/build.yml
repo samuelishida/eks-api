@@ -49,7 +49,9 @@ jobs:
           IMAGE: eks-api-api
         run: |
           set -euo pipefail
-          docker buildx create --name eks-api-builder --use
+          # Idempotent: reuse the builder if a previous run left it behind.
+          docker buildx inspect eks-api-builder >/dev/null 2>&1 || docker buildx create --name eks-api-builder
+          docker buildx use eks-api-builder
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             -t "$REGISTRY/$IMAGE:${{ github.sha }}" \

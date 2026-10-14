@@ -47,8 +47,6 @@ ingress:
   scheme: external
   tls: false
   certArn: ""
+  # Name of the in-cluster TLS secret backing the ALB certificate.
+  tlsSecretName: api-tls
   annotations: {}
-
-# Stateless: persistence lives in RDS.
-pvc:
-  enabled: false

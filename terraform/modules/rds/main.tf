@@ -46,7 +46,6 @@ resource "aws_kms_key" "rds" {
           "kms:UntagResource",
           "kms:UpdateKeyDescription",
           "kms:EnableKeyRotation",
-          "kms:ReEncrypt*",
           "kms:ScheduleKeyDeletion",
           "kms:CancelKeyDeletion",
         ]
@@ -56,10 +55,7 @@ resource "aws_kms_key" "rds" {
         Sid    = "AllowClusterAndNodes"
         Effect = "Allow"
         Principal = {
-          AWS = [
-            var.node_iam_role_arn,
-            "arn:aws:sts::${data.aws_caller_identity.current.account_id}:assumed-role/*EKS*",
-          ]
+          AWS = var.node_iam_role_arn
         }
         Action = [
           "kms:Decrypt",
