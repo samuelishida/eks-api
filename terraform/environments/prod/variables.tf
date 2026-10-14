@@ -76,3 +76,9 @@ variable "cluster_log_types" {
     scheduler         = "true"
   }
 }
+
+variable "acm_domain" {
+  description = "ACM-validated domain for the prod ALB TLS certificate."
+  type        = string
+  default     = "api.example.com"
+}

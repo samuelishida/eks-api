@@ -37,3 +37,48 @@ output "node_iam_role_arn" {
   description = "Managed node group IAM role ARN."
   value       = module.eks.node_iam_role_arn
 }
+
+output "rds_endpoint" {
+  description = "RDS endpoint (private, emulated)."
+  value       = module.rds.endpoint
+}
+
+output "rds_address" {
+  description = "RDS address (private, emulated)."
+  value       = module.rds.address
+}
+
+output "rds_port" {
+  description = "RDS port."
+  value       = module.rds.port
+}
+
+output "rds_db_name" {
+  description = "RDS database name."
+  value       = module.rds.db_name
+}
+
+output "rds_username" {
+  description = "RDS master username."
+  value       = module.rds.username
+}
+
+output "ecr_repository_url" {
+  description = "ECR repository URL for the API image."
+  value       = module.ecr.repository_url
+}
+
+output "acm_certificate_arn" {
+  description = "ACM certificate ARN (empty when not created)."
+  value       = module.network.acm_certificate_arn
+}
+
+output "db_secret_name" {
+  description = "Name of the DB credentials Secret in the cluster."
+  value       = kubernetes_secret_v1.api_db_credentials.metadata[0].name
+}
+
+output "api_namespace" {
+  description = "Kubernetes namespace for the API."
+  value       = kubernetes_namespace_v1.api.metadata[0].name
+}

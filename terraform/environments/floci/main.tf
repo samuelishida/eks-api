@@ -54,3 +54,11 @@ module "eks" {
   asg_desired         = var.asg_desired
   logging             = var.cluster_log_types
 }
+
+# kubernetes provider: writes the DB-password Secret (Inc 3). Uses the static
+# Floci token (no data source — the emulator has no STS GetSessionToken flow).
+provider "kubernetes" {
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_ca_cert)
+  token                  = var.floci_k8s_token
+}

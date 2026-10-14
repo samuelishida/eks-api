@@ -25,3 +25,15 @@ module "eks" {
   asg_desired         = var.asg_desired
   logging             = var.cluster_log_types
 }
+
+# kubernetes provider: writes the DB-password Secret (Inc 3). On a real account,
+# `terraform apply` must run from inside the VPC (private-only endpoint) — see the runbook.
+provider "kubernetes" {
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_ca_cert)
+  token                  = data.aws_eks_cluster_auth.this.token
+}
+
+data "aws_eks_cluster_auth" "this" {
+  name = module.eks.cluster_name
+}

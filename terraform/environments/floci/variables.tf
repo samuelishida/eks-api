@@ -67,3 +67,9 @@ variable "cluster_log_types" {
   type        = map(string)
   default     = {}
 }
+
+variable "floci_k8s_token" {
+  description = "Static bearer token for the kubernetes provider (from the Floci kubeconfig)."
+  type        = string
+  default     = "floci"
+}
