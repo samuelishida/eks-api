@@ -1,0 +1,10 @@
+# Namespace api-dev — declarative source of truth (ArgoCD also creates it via
+# createNamespace on the api-dev Application; this keeps the namespace and its
+# labels in git).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: api-dev
+  labels:
+    app.kubernetes.io/part-of: eks-api
+    app.kubernetes.io/env: dev

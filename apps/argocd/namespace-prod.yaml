@@ -1,0 +1,10 @@
+# Namespace api-prod — declarative source of truth (ArgoCD also creates it via
+# createNamespace on the api-prod Application; this keeps the namespace and its
+# labels in git).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: api-prod
+  labels:
+    app.kubernetes.io/part-of: eks-api
+    app.kubernetes.io/env: prod

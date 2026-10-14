@@ -1,0 +1,32 @@
+# api-staging — Application for the api chart in the api-staging namespace.
+#
+# Synced by the LBC first (see lbc.yaml): the ALB Ingress this chart creates
+# is reconciled by the AWS Load Balancer Controller.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: api-staging
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: eks-api
+    app.kubernetes.io/env: staging
+spec:
+  project: eks-api
+  source:
+    repoURL: "https://github.com/<org>/eks-api.git"
+    path: "charts/api"
+    targetRevision: main
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-staging.yaml
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: api-staging
+    createNamespace: true
+  syncPolicy:
+    autoSync:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

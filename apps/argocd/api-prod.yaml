@@ -1,0 +1,32 @@
+# api-prod — Application for the api chart in the api-prod namespace.
+#
+# Synced by the LBC first (see lbc.yaml): the ALB Ingress this chart creates
+# is reconciled by the AWS Load Balancer Controller.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: api-prod
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: eks-api
+    app.kubernetes.io/env: prod
+spec:
+  project: eks-api
+  source:
+    repoURL: "https://github.com/<org>/eks-api.git"
+    path: "charts/api"
+    targetRevision: main
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: api-prod
+    createNamespace: true
+  syncPolicy:
+    autoSync:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

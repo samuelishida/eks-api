@@ -1,0 +1,39 @@
+# AppProject scoping the eks-api app-of-apps.
+#
+# Sources: this repo (charts/api) + the upstream LBC chart repo.
+# Destinations: in-cluster only, namespaced to api-* (workloads) and
+# kube-system (LBC). Cluster-scoped resources are whitelisted narrowly:
+# Namespaces (the api-* namespaces), and the ClusterRole/ClusterRoleBinding
+# the LBC chart installs in kube-system.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: eks-api
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: eks-api
+spec:
+  sourceRepos:
+    - "https://github.com/<org>/eks-api.git"
+    - "https://github.com/kubernetes-sigs/aws-load-balancer-controller"
+  destinations:
+    - server: "https://kubernetes.default.svc"
+      namespace: "api-*"
+    - server: "https://kubernetes.default.svc"
+      namespace: "kube-system"
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: apps
+      kind: "*"
+    - group: networking.k8s.io
+      kind: "*"
+    - group: rbac.authorization.k8s.io
+      kind: "*"
