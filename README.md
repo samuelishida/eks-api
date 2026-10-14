@@ -31,6 +31,7 @@ eks-api/
     versions.tf                 # pinned providers + modules
     modules/                    # vpc, eks, rds, network, ecr, monitoring
     environments/
+      bootstrap/                # one-off: S3 state bucket + DynamoDB lock table
       dev|staging|prod/         # real S3+DynamoDB backend + tfvars per env
       floci/                    # local-only, points at the Floci emulator
   charts/api/                   # custom Helm chart for the API (+ per-env values)
