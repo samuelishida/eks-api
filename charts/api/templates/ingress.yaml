@@ -1,0 +1,56 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "api.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "api.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: {{ .Values.ingress.scheme }}
+    alb.ingress.kubernetes.io/target-type: ip
+    {{- if .Values.ingress.tls }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+    {{- else }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    {{- end }}
+    {{- if .Values.ingress.certArn }}
+    alb.ingress.kubernetes.io/certificate-arn: {{ .Values.ingress.certArn }}
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.host }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "api.fullname" . }}
+                port:
+                  name: http
+  {{- else }}
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "api.fullname" . }}
+                port:
+                  name: http
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: api-tls
+  {{- end }}
+{{- end }}

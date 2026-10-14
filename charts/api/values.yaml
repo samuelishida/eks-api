@@ -1,0 +1,54 @@
+# Default values for the api chart.
+# Per-environment overrides live in values-<env>.yaml.
+
+image:
+  # Placeholder ECR path — override with the real account/region from
+  # terraform (module.ecr.repository_url) at deploy time.
+  repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/eks-api-api
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicas: 2
+
+service:
+  type: ClusterIP
+  port: 8080
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+pod:
+  labels: {}
+  annotations: {}
+
+# The DB secret is OWNED BY TERRAFORM (Inc 3) — the chart only references it
+# via secretKeyRef and must never create it.
+db:
+  secretExistingName: api-db-credentials
+  # secret key -> env var name
+  secretKeys:
+    host: DB_HOST
+    port: DB_PORT
+    user: DB_USER
+    password: DB_PASSWORD
+    name: DB_NAME
+
+httpAddr: ":8080"
+
+ingress:
+  enabled: true
+  className: alb
+  host: ""
+  scheme: external
+  tls: false
+  certArn: ""
+  annotations: {}
+
+# Stateless: persistence lives in RDS.
+pvc:
+  enabled: false

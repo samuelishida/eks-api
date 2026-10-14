@@ -1,0 +1,13 @@
+api chart installed (release: {{ .Release.Name }}, namespace: {{ .Release.Namespace }}).
+
+Notes:
+- The ALB does not exist yet: it is reconciled by the AWS Load Balancer
+  Controller (Inc 6). The Ingress only becomes a live endpoint once the
+  LBC is installed in the cluster.
+- The DB secret "api-db-credentials" is OWNED BY TERRAFORM (Inc 3); this
+  chart only references it via secretKeyRef and never creates it.
+- Readiness maps to /readyz (DB ping): a DB outage removes the replica
+  from the ALB target group automatically.
+
+Check the deployment with:
+  kubectl -n {{ .Release.Namespace }} get deploy,svc,ingress

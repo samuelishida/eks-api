@@ -1,0 +1,17 @@
+# prod: three replicas, external ALB with TLS (ACM cert in us-east-1).
+replicas: 3
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+ingress:
+  host: "api.example.com"
+  tls: true
+  scheme: external
+  # Placeholder ACM certificate ARN — replace with the real cert from terraform.
+  certArn: "arn:aws:acm:us-east-1:123456789012:certificate/PLACEHOLDER"

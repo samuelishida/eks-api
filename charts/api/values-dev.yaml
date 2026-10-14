@@ -1,0 +1,15 @@
+# dev: single replica, internal ALB, no TLS, smaller resources.
+replicas: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 128Mi
+
+ingress:
+  host: "api-dev.local"
+  tls: false
+  scheme: internal

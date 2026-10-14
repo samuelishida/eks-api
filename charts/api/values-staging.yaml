@@ -1,0 +1,7 @@
+# staging: two replicas, external ALB, no TLS.
+replicas: 2
+
+ingress:
+  host: "api-staging.example.com"
+  tls: false
+  scheme: external
