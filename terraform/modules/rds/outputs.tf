@@ -38,3 +38,8 @@ output "kms_key_arn" {
   description = "KMS key ARN."
   value       = aws_kms_key.rds.arn
 }
+
+output "identifier" {
+  description = "RDS instance identifier (for CloudWatch alarm dimensions)."
+  value       = module.rds.db_instance_identifier
+}

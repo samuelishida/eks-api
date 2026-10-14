@@ -37,3 +37,8 @@ output "node_iam_role_arn" {
   description = "Managed node group IAM role ARN (needed for the KMS policy in later increments)."
   value       = module.eks.eks_managed_node_groups["node"].iam_role_arn
 }
+
+output "asg_names" {
+  description = "Auto Scaling group names of the managed node groups (index by group key, e.g. [\"node\"])."
+  value       = module.eks.eks_managed_node_groups
+}
