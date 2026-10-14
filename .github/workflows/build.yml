@@ -1,0 +1,59 @@
+name: build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Go version is read from go.mod (single source of truth).
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+
+  push-image:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push image (tagged with commit SHA)
+        env:
+          # PLACEHOLDER account ID — replace with the real account from
+          # terraform (module.ecr.repository_url) once the account exists.
+          REGISTRY: 123456789012.dkr.ecr.us-east-1.amazonaws.com
+          IMAGE: eks-api-api
+        run: |
+          set -euo pipefail
+          docker buildx create --name eks-api-builder --use
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -t "$REGISTRY/$IMAGE:${{ github.sha }}" \
+            --push \
+            -f apps/api/Dockerfile \
+            apps/api
+          docker buildx rm eks-api-builder

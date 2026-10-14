@@ -1,0 +1,29 @@
+name: terraform
+
+on:
+  pull_request:
+    paths:
+      - 'terraform/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.5
+      # Static checks only: init without backend, validate, fmt.
+      # NO apply, NO plan-with-state — state is never touched in CI.
+      - name: Init + validate (all envs)
+        run: |
+          set -euo pipefail
+          for env in dev staging prod floci; do
+            terraform -chdir=terraform/environments/$env init -backend=false
+            terraform -chdir=terraform/environments/$env validate
+          done
+      - name: terraform fmt check
+        run: terraform fmt -check -recursive
