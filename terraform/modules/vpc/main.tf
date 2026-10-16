@@ -26,6 +26,8 @@ module "vpc" {
   enable_dns_support   = true
   enable_dns_hostnames = true
 
+  manage_default_network_acl = var.manage_default_network_acl
+
   tags = {
     Name = "${var.name}-${var.env}"
     Env  = var.env

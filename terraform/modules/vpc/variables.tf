@@ -23,3 +23,9 @@ variable "per_az_nat" {
   type        = bool
   default     = false
 }
+
+variable "manage_default_network_acl" {
+  description = "Whether to manage the VPC default network ACL; disable for Floci because it does not round-trip IPv6 rules consistently."
+  type        = bool
+  default     = true
+}

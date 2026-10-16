@@ -3,21 +3,6 @@ variable "region" {
   type        = string
 }
 
-variable "aws_account_id" {
-  description = "AWS account ID (used for naming, e.g. the state bucket)."
-  type        = string
-}
-
-variable "backend_bucket" {
-  description = "S3 bucket for Terraform state (bootstrapped by the runbook)."
-  type        = string
-}
-
-variable "lock_table" {
-  description = "DynamoDB table for Terraform state locking (bootstrapped by the runbook)."
-  type        = string
-}
-
 variable "name" {
   description = "Base name for resources in this environment."
   type        = string
@@ -75,4 +60,10 @@ variable "cluster_log_types" {
     controllerManager = "true"
     scheduler         = "true"
   }
+}
+
+variable "alert_email" {
+  description = "Optional SNS email recipient for CloudWatch alarms. Confirm the subscription after apply."
+  type        = string
+  default     = ""
 }

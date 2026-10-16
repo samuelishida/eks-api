@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,12 +22,14 @@ const schemaDDL = `CREATE TABLE IF NOT EXISTS items (
 
 // DB wraps the pgx pool plus the idempotent schema bootstrap.
 type DB struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	initMu      sync.Mutex
+	schemaReady bool
 }
 
-// New builds the pool, pings the database, and runs the idempotent
-// schema bootstrap. It is the readiness gate: until New returns, the
-// replica must not serve traffic.
+// New builds the pool without requiring the database to be reachable. The
+// HTTP server can start and report liveness while Initialize retries; readiness
+// stays false until the connection and schema bootstrap succeed.
 func New(ctx context.Context, cfg Config) (*DB, error) {
 	poolCfg, err := pgxpool.ParseConfig(cfg.DSN())
 	if err != nil {
@@ -40,23 +43,38 @@ func New(ctx context.Context, cfg Config) (*DB, error) {
 		return nil, fmt.Errorf("db: create pool: %w", err)
 	}
 
-	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if err := pool.Ping(pingCtx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("db: ping: %w", err)
-	}
-
-	if _, err := pool.Exec(ctx, schemaDDL); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("db: bootstrap schema: %w", err)
-	}
-
 	return &DB{pool: pool}, nil
 }
 
-// Ping reports database reachability. Used by /readyz.
+// Initialize verifies database reachability and bootstraps the schema. It is
+// safe to retry after transient startup failures.
+func (d *DB) Initialize(ctx context.Context) error {
+	d.initMu.Lock()
+	defer d.initMu.Unlock()
+	if d.schemaReady {
+		return nil
+	}
+
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := d.pool.Ping(pingCtx); err != nil {
+		return fmt.Errorf("db: ping: %w", err)
+	}
+	if _, err := d.pool.Exec(ctx, schemaDDL); err != nil {
+		return fmt.Errorf("db: bootstrap schema: %w", err)
+	}
+	d.schemaReady = true
+	return nil
+}
+
+// Ping reports database readiness and reachability. Used by /readyz.
 func (d *DB) Ping(ctx context.Context) error {
+	d.initMu.Lock()
+	ready := d.schemaReady
+	d.initMu.Unlock()
+	if !ready {
+		return ErrNotReady
+	}
 	return d.pool.Ping(ctx)
 }
 
@@ -162,3 +180,6 @@ func (d *DB) DeleteItem(ctx context.Context, id int64) error {
 
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = errors.New("not found")
+
+// ErrNotReady indicates that the startup connection/schema gate has not passed.
+var ErrNotReady = errors.New("database not ready")

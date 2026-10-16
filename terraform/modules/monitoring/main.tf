@@ -24,6 +24,8 @@ resource "aws_sns_topic_subscription" "email" {
 
 # --- ALB 5xx (target) ---------------------------------------------------------
 resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
+  count = var.alb_name != "" && var.target_group_name != "" ? 1 : 0
+
   alarm_name          = "${var.name}-${var.env}-alb-5xx"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
@@ -36,13 +38,39 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
 
   dimensions = {
     LoadBalancer = var.alb_name
-    TargetGroup  = var.target_group_arn
+    TargetGroup  = var.target_group_name
   }
 
   alarm_actions = [aws_sns_topic.alerts.arn]
 
   tags = {
     Name = "${var.name}-${var.env}-alb-5xx"
+    Env  = var.env
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "alb_unhealthy_targets" {
+  count = var.alb_name != "" && var.target_group_name != "" ? 1 : 0
+
+  alarm_name          = "${var.name}-${var.env}-alb-unhealthy-targets"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 2
+  metric_name         = "UnHealthyHostCount"
+  namespace           = "AWS/ApplicationELB"
+  period              = 60
+  statistic           = "Maximum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    LoadBalancer = var.alb_name
+    TargetGroup  = var.target_group_name
+  }
+
+  alarm_actions = [aws_sns_topic.alerts.arn]
+
+  tags = {
+    Name = "${var.name}-${var.env}-alb-unhealthy-targets"
     Env  = var.env
   }
 }
@@ -119,16 +147,16 @@ resource "aws_cloudwatch_metric_alarm" "node_count" {
   }
 }
 
-# --- EKS control-plane error rate --------------------------------------------
+# --- EKS control-plane API-server 5xx count ----------------------------------
 resource "aws_cloudwatch_metric_alarm" "control_plane_errors" {
   alarm_name          = "${var.name}-${var.env}-cp-errors"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
-  metric_name         = "ControlPlaneErrorRate"
+  metric_name         = "apiserver_request_total_5XX"
   namespace           = "AWS/EKS"
   period              = 300
-  statistic           = "Average"
-  threshold           = var.cp_error_threshold
+  statistic           = "Sum"
+  threshold           = var.cp_5xx_threshold
   treat_missing_data  = "notBreaching"
 
   dimensions = {

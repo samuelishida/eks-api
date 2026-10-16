@@ -9,6 +9,6 @@ output "acm_certificate_arn" {
 }
 
 output "acm_validation" {
-  description = "ACM DNS validation records (to create in Route53)."
-  value       = var.create_acm_cert ? aws_acm_certificate_validation.alb[0].validation_record_fqdns : []
+  description = "ACM DNS validation options; create the listed CNAME records in the hosted zone."
+  value       = var.create_acm_cert ? aws_acm_certificate.alb[0].domain_validation_options : []
 }

@@ -5,7 +5,8 @@ image:
   # Placeholder ECR path — override with the real account/region from
   # terraform (module.ecr.repository_url) at deploy time.
   repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/eks-api-api
-  tag: latest
+  # Set to a built commit SHA in each environment values file before deploy.
+  tag: REPLACE_WITH_COMMIT_SHA
   pullPolicy: IfNotPresent
 
 replicas: 2
@@ -30,6 +31,7 @@ pod:
 # via secretKeyRef and must never create it.
 db:
   secretExistingName: api-db-credentials
+  sslMode: require
   # secret key -> env var name
   secretKeys:
     host: DB_HOST
@@ -43,7 +45,7 @@ httpAddr: ":8080"
 ingress:
   enabled: true
   className: alb
-  host: ""
+  host: "api.example.invalid"
   scheme: external
   tls: false
   certArn: ""

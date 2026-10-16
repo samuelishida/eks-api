@@ -1,20 +1,17 @@
-# api-dev — Application for the api chart in the api-dev namespace.
-#
-# Synced by ArgoCD (see argocd-project.yaml): the ALB Ingress this chart
-# creates is reconciled by the AWS Load Balancer Controller (lbc.yaml).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: api-dev
   namespace: argocd
-  labels:
-    app.kubernetes.io/part-of: eks-api
-    app.kubernetes.io/env: dev
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: eks-api
   source:
     repoURL: "https://github.com/<org>/eks-api.git"
-    path: "charts/api"
+    path: charts/api
     targetRevision: main
     helm:
       valueFiles:
@@ -23,9 +20,8 @@ spec:
   destination:
     server: "https://kubernetes.default.svc"
     namespace: api-dev
-    createNamespace: true
   syncPolicy:
-    autoSync:
+    automated:
       prune: true
       selfHeal: true
     syncOptions:

@@ -8,22 +8,26 @@
 # - Managed node group lives in the private subnets; the module attaches both
 #   AmazonEKSWorkerNodePolicy and AmazonEKS_CNI_Policy to its IAM role
 #   automatically.
-# - The module does not expose a pod security group, so a dedicated one is
-#   created here and attached to the node group (pods inherit it). It is the
-#   target of the ALB ip-targeting annotation and the source of the RDS SG
-#   rule in later increments.
+# - A dedicated security group is attached to the managed node group. Standard
+#   VPC CNI pods use node ENIs and therefore share this node-group network
+#   boundary; this is not EKS Security Groups for Pods isolation.
 
 locals {
   name = "${var.name}-${var.env}"
 }
 
-# Dedicated pod security group: pod-to-pod traffic (self) + all egress.
-# The ALB controller adds the ALB->pod ingress rule itself when the
-# `alb.ingress.kubernetes.io/target-type: ip` annotation is used.
+# Dedicated workload node-group security group: intra-group traffic + egress.
 resource "aws_security_group" "pod" {
   name        = "${local.name}-pod"
-  description = "Dedicated pod security group for ${local.name} (ALB ip-targeting, RDS SG rule source)"
+  description = "Dedicated workload node-group security group for ${local.name}"
   vpc_id      = var.vpc_id
+
+  # Existing Floci state used an earlier pod-oriented description. The API
+  # cannot update SG descriptions in place; avoid replacing a live SG just to
+  # correct this label. New environments get the accurate description above.
+  lifecycle {
+    ignore_changes = [description]
+  }
 
   ingress {
     description = "Pod-to-pod traffic"
@@ -87,7 +91,7 @@ module "eks" {
       # The module attaches AmazonEKSWorkerNodePolicy + AmazonEKS_CNI_Policy
       # to this role automatically for managed node groups.
 
-      # Attach the dedicated pod SG to the node group so pods inherit it.
+      # Attach this additional SG to the dedicated managed node group.
       vpc_security_group_ids = [aws_security_group.pod.id]
     }
   }

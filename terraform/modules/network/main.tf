@@ -1,4 +1,4 @@
-# Network module — RDS security group, pod-SG ALB rule, VPC endpoints, prod ACM cert.
+# Network module — RDS security group, workload-node ingress rule, VPC endpoints, ACM cert.
 #
 # Providers are configured at the environment root, never here.
 #
@@ -7,24 +7,28 @@
 # - This module OWNS the ECR interface endpoint + the S3 gateway endpoint.
 #
 # Security model:
-# - RDS SG: ingress 5432 ONLY from the EKS pod security group (where the API pods run).
-# - Pod SG: an ingress rule for 8080 from the VPC CIDR so the ALB (ip-targeting) can reach
-#   the pods. The ALB's own SG is created at runtime by the AWS Load Balancer Controller
-#   (not by Terraform), so its SG id is not knowable at apply time — the VPC CIDR is the
-#   accepted broadening.
+# - RDS SG: ingress 5432 only from the dedicated workload node-group SG. Standard
+#   VPC CNI pods share node ENIs; this does not isolate traffic to one Kubernetes pod.
+# - Workload node SG: permits 8080 from the VPC so ALB IP targets can be reached.
 
-# RDS security group: only the pod SG may reach Postgres.
+# RDS security group: only workload nodes may reach Postgres.
 resource "aws_security_group" "rds" {
   name        = "${var.name}-rds"
-  description = "RDS ${var.name}: ingress 5432 only from the EKS pod SG"
+  description = "RDS ${var.name}: ingress 5432 only from workload node group"
   vpc_id      = var.vpc_id
 
+  # Preserve existing SG state: AWS security-group descriptions are immutable.
+  # New environments use the accurate workload-node description above.
+  lifecycle {
+    ignore_changes = [description]
+  }
+
   ingress {
-    description     = "Postgres from EKS pods only"
+    description     = "Postgres from workload nodes"
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
-    security_groups = [var.pod_security_group_id]
+    security_groups = [var.workload_node_security_group_id]
   }
 
   egress {
@@ -41,10 +45,10 @@ resource "aws_security_group" "rds" {
   }
 }
 
-# Pod-SG ingress rule for ALB ip-targeting (8080 from the VPC CIDR).
+# Workload node SG ingress rule for ALB IP targets (8080 from the VPC CIDR).
 resource "aws_vpc_security_group_ingress_rule" "pod_alb" {
-  security_group_id = var.pod_security_group_id
-  description       = "ALB -> API pods (ip-targeting); ALB SG is runtime-created, so VPC CIDR is used"
+  security_group_id = var.workload_node_security_group_id
+  description       = var.alb_ingress_rule_description
   from_port         = 8080
   to_port           = 8080
   ip_protocol       = "tcp"
@@ -144,10 +148,4 @@ resource "aws_acm_certificate" "alb" {
     Name = "${var.name}-alb"
     Env  = var.env
   }
-}
-
-resource "aws_acm_certificate_validation" "alb" {
-  count = var.create_acm_cert ? 1 : 0
-
-  certificate_arn = aws_acm_certificate.alb[0].arn
 }

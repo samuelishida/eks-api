@@ -1,0 +1,5 @@
+bucket         = "eks-api-tfstate-<account-id>"
+key            = "prod/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "eks-api-tflock"
+encrypt        = true

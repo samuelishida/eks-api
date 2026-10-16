@@ -59,6 +59,9 @@ module "vpc" {
   cidr       = var.vpc_cidr
   azs        = var.azs
   per_az_nat = var.per_az_nat
+
+  # Floci repeatedly reorders/drops IPv6 default ACL rules; leave its default ACL unmanaged.
+  manage_default_network_acl = false
 }
 
 module "eks" {

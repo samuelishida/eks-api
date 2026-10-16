@@ -14,7 +14,7 @@ output "cluster_endpoint" {
 }
 
 output "cluster_ca_cert" {
-  description = "EKS cluster CA certificate (base64-decoded)."
+  description = "EKS cluster CA certificate (base64-encoded)."
   value       = module.eks.cluster_ca_cert
 }
 
@@ -23,9 +23,14 @@ output "node_security_group_id" {
   value       = module.eks.node_security_group_id
 }
 
+output "workload_node_security_group_id" {
+  description = "Additional security group attached to the managed workload node group."
+  value       = module.eks.workload_node_security_group_id
+}
+
 output "pod_security_group_id" {
-  description = "Dedicated pod security group ID."
-  value       = module.eks.pod_security_group_id
+  description = "Deprecated alias; this SG is attached to workload nodes, not isolated to individual pods."
+  value       = module.eks.workload_node_security_group_id
 }
 
 output "oidc_provider_arn" {

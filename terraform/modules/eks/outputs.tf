@@ -23,8 +23,13 @@ output "node_security_group_id" {
   value       = module.eks.cluster_security_group_id
 }
 
+output "workload_node_security_group_id" {
+  description = "Additional security group attached to the managed workload node group."
+  value       = aws_security_group.pod.id
+}
+
 output "pod_security_group_id" {
-  description = "Dedicated pod security group ID (ALB ip-targeting, RDS SG rule source)."
+  description = "Deprecated alias; this SG is attached to workload nodes, not isolated to individual pods."
   value       = aws_security_group.pod.id
 }
 

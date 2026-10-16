@@ -1,39 +1,57 @@
-# eks-api — thin wrappers over terraform / helm / go / floci.
+# eks-api — thin wrappers over terraform / helm / go / floci / kind.
 # Usage: make <target> [ENV=dev|staging|prod|floci]
 
 ENV       ?= dev
 TF_DIR    := terraform/environments/$(ENV)
+TFVARS    := $(wildcard $(TF_DIR)/$(ENV).tfvars)
+TFVARS_ARG := $(if $(TFVARS),-var-file=$(ENV).tfvars,)
+TF_CLUSTER_TARGETS := -target=module.eks
+ifeq ($(ENV),floci)
+TF_CLUSTER_TARGETS += -target=module.lbc -target=aws_iam_role.lbc -target=aws_iam_role_policy.lbc -target=module.lbc.aws_iam_role.this -target=module.lbc.aws_iam_role_policy.this
+endif
 CHART     := charts/api
 API_DIR   := apps/api
 GO        ?= go
 FLOCI_DIR := ../aws-tools/local-emulator
 FLOCI_KC  := /tmp/floci-eks-api-kubeconfig
+KIND      ?= kind
 
-.PHONY: help tf-init tf-plan tf-apply tf-destroy tf-validate \
+.PHONY: help tf-init tf-cluster-plan tf-cluster-apply tf-plan tf-apply tf-destroy tf-validate \
         helm-lint helm-template api-test api-build api-run \
-        floci-up floci-down floci-validate
+        floci-up floci-down floci-validate kind-e2e
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 tf-init: ## terraform init for ENV (default dev)
-	terraform -chdir=$(TF_DIR) init
+	@if [ "$(ENV)" = floci ]; then \
+	  terraform -chdir=$(TF_DIR) init -backend=false; \
+	else \
+	  test -f "$(TF_DIR)/backend.hcl" || { echo "Missing $(TF_DIR)/backend.hcl; copy backend.hcl.example and set bucket/region/lock table." >&2; exit 1; }; \
+	  terraform -chdir=$(TF_DIR) init -backend-config=backend.hcl; \
+	fi
+
+tf-cluster-plan: ## plan VPC + EKS bootstrap stage before Kubernetes provider is available
+	terraform -chdir=$(TF_DIR) plan $(TFVARS_ARG) $(TF_CLUSTER_TARGETS)
+
+tf-cluster-apply: ## apply VPC + EKS bootstrap stage; then run tf-plan/tf-apply
+	terraform -chdir=$(TF_DIR) apply $(TFVARS_ARG) $(TF_CLUSTER_TARGETS) -auto-approve
 
 tf-plan: ## terraform plan for ENV
-	terraform -chdir=$(TF_DIR) plan
+	terraform -chdir=$(TF_DIR) plan $(TFVARS_ARG)
 
 tf-apply: ## terraform apply for ENV
-	terraform -chdir=$(TF_DIR) apply -auto-approve
+	terraform -chdir=$(TF_DIR) apply $(TFVARS_ARG) -auto-approve
 
 tf-destroy: ## terraform destroy for ENV
-	terraform -chdir=$(TF_DIR) destroy -auto-approve
+	terraform -chdir=$(TF_DIR) destroy $(TFVARS_ARG) -auto-approve
 
 tf-validate: ## terraform validate for ENV
 	terraform -chdir=$(TF_DIR) validate
 
 helm-lint: ## helm lint charts/api against each env values file
-	@for env in dev staging prod; do \
+	@set -e; for env in dev staging prod; do \
 		helm lint $(CHART) -f $(CHART)/values-$${env}.yaml; \
 	done
 
@@ -57,3 +75,6 @@ floci-down: ## stop the Floci emulator
 
 floci-validate: ## terraform apply (floci) + helm/kubectl dry-runs + shape checks
 	@sh scripts/floci-validate.sh
+
+kind-e2e: ## build API + PostgreSQL in isolated Kind cluster and exercise HTTP CRUD
+	@KIND_BIN="$(KIND)" sh scripts/kind-e2e.sh

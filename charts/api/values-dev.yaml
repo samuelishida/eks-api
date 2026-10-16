@@ -1,6 +1,9 @@
 # dev: single replica, internal ALB, no TLS, smaller resources.
 replicas: 1
 
+image:
+  repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/eks-api-api-dev
+
 resources:
   requests:
     cpu: 50m

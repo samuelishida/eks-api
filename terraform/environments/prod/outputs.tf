@@ -3,6 +3,11 @@ output "cluster_name" {
   value       = module.eks.cluster_name
 }
 
+output "vpc_id" {
+  description = "VPC ID for the Load Balancer Controller chart values."
+  value       = module.vpc.vpc_id
+}
+
 output "cluster_arn" {
   description = "EKS cluster ARN."
   value       = module.eks.cluster_arn
@@ -14,7 +19,7 @@ output "cluster_endpoint" {
 }
 
 output "cluster_ca_cert" {
-  description = "EKS cluster CA certificate (base64-decoded)."
+  description = "EKS cluster CA certificate (base64-encoded)."
   value       = module.eks.cluster_ca_cert
 }
 
@@ -23,9 +28,14 @@ output "node_security_group_id" {
   value       = module.eks.node_security_group_id
 }
 
+output "workload_node_security_group_id" {
+  description = "Additional security group attached to the managed workload node group."
+  value       = module.eks.workload_node_security_group_id
+}
+
 output "pod_security_group_id" {
-  description = "Dedicated pod security group ID."
-  value       = module.eks.pod_security_group_id
+  description = "Deprecated alias; this SG is attached to workload nodes, not isolated to individual pods."
+  value       = module.eks.workload_node_security_group_id
 }
 
 output "oidc_provider_arn" {
@@ -71,6 +81,11 @@ output "ecr_repository_url" {
 output "acm_certificate_arn" {
   description = "ACM certificate ARN (empty when not created)."
   value       = module.network.acm_certificate_arn
+}
+
+output "acm_validation_options" {
+  description = "ACM DNS validation options; create the listed CNAME records in the hosted zone."
+  value       = module.network.acm_validation
 }
 
 output "db_secret_name" {

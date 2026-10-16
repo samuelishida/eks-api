@@ -1,173 +1,189 @@
-# Runbook — deploying eks-api to a real AWS account
+# Runbook — deploying eks-api to AWS
 
-This runbook takes the validated repo from a fresh AWS account to a live,
-ALB-fronted API on EKS with a private RDS PostgreSQL, per environment
-(`dev` → `staging` → `prod`). All account-specific values are **placeholders**
-(`<account-id>`, `<your-org>`); substitute your own — nothing here is a secret.
+This runbook provisions separate `dev`, `staging`, and `prod` environments. It
+creates private EKS control-plane endpoints, private RDS PostgreSQL, ECR, an
+AWS Load Balancer Controller IRSA role, and CloudWatch alerts. Account IDs,
+domains, repository names, and role ARNs are placeholders until configured.
 
-> **Floci is a shape validator, not a billing proxy.** `make floci-validate`
-> proves the Terraform/Helm/k8s wiring is coherent; it does not prove cost,
-> performance, or real network behavior. Only this runbook (real AWS) does that.
+Floci checks local Terraform/Helm/Kubernetes resource wiring. Kind checks live
+API-to-PostgreSQL traffic and CRUD. Neither proves AWS networking, IAM,
+availability, performance, or cost; this runbook covers real AWS behavior.
 
-## 0. Prerequisites
+## Prerequisites
 
-| What | Why | How to check |
-| --- | --- | --- |
-| AWS account + IAM user/role with admin (or EKS/RDS/IAM/S3/ECR/CloudWatch) perms | everything below | `aws sts get-caller-identity` |
-| `aws` CLI v2 + `terraform` ≥ 1.11 + `helm` + `kubectl` + `docker` | toolchain | `terraform -version` etc. |
-| GitHub repo with this code pushed | CI/CD + ArgoCD source | — |
-| GitHub OIDC: the repo's Actions can assume AWS roles (steps 3–4) | CI builds/pushes images, opens deploy PRs | — |
-| ACM-validated certificate (prod/staging only) | TLS on the ALB | see step 5 |
+- AWS account and Terraform execution role with required EKS, EC2, IAM, KMS,
+  RDS, ECR, CloudWatch, SNS, S3, DynamoDB, and ACM permissions.
+- Terraform `>= 1.11`, AWS CLI v2, Helm, kubectl, Docker, and GitHub Actions OIDC.
+- A Terraform runner inside the VPC (or connected by VPN/SSM) for each apply:
+  EKS API endpoints are private, and Terraform also writes Kubernetes Secrets.
+- GitHub repository with Actions variables `AWS_ACCOUNT_ID`, `AWS_REGION`,
+  and `AWS_BUILD_ROLE_ARN` configured.
 
-Set a profile alias used throughout: `export AWS_PROFILE=<your-profile>`.
+Use `AWS_PROFILE=<profile>` for local AWS CLI and Terraform commands as needed.
 
-## 1. Step 0 — bootstrap remote state (chicken-and-egg)
+## 1. Create remote state backend
 
-Every env's `terraform init` reads its state from S3 with a DynamoDB lock table,
-so those must exist **before** the first env `init`. They live in a one-off
-root:
+Bootstrap root uses local state. Initialize it before applying:
 
 ```sh
-# 1a. Pick a globally-unique bucket name (S3 names are global — include your account ID).
-#     e.g. eks-api-tfstate-123456789012
 export STATE_BUCKET=eks-api-tfstate-<account-id>
 export LOCK_TABLE=eks-api-tflock
 
-# 1b. Apply the bootstrap root (S3 bucket: versioned, KMS-encrypted, public-access
-#     blocked, noncurrent-expiration; DynamoDB: PAY_PER_REQUEST + PITR).
-terraform -chdir=terraform/environments/bootstrap apply -auto-approve \
-  -var state_bucket="$STATE_BUCKET" -var lock_table="$LOCK_TABLE"
-
-# 1c. Point each env at the new backend (the tracked tfvars ship a placeholder):
-#     in terraform/environments/{dev,staging,prod}/*.tfvars set
-#       backend_bucket = "<$STATE_BUCKET>"
-#       lock_table     = "<$LOCK_TABLE>"
-#     (dev.tfvars is tracked; staging/prod tfvars are gitignored — create them
-#      from dev.tfvars and adjust `env_name`.)
+terraform -chdir=terraform/environments/bootstrap init
+terraform -chdir=terraform/environments/bootstrap apply \
+  -var="state_bucket=$STATE_BUCKET" \
+  -var="lock_table=$LOCK_TABLE" \
+  -var="region=us-east-1"
 ```
 
-Do **not** destroy the bootstrap root while any env still references the
-bucket/table — their `init` would fail.
-
-## 2. Per-env apply order
-
-For each environment (`dev` first), from the repo root:
+For each real environment, copy its backend example to ignored `backend.hcl`
+and set the bucket name. Keep environment-specific `key`, region, and lock table:
 
 ```sh
-make tf-init ENV=dev      # terraform init (S3+DynamoDB backend)
-make tf-plan ENV=dev      # review the plan
-make tf-apply ENV=dev     # apply
+cp terraform/environments/dev/backend.hcl.example terraform/environments/dev/backend.hcl
 ```
 
-The env root applies its modules in dependency order automatically
-(`main.tf` → vpc → eks → network → rds → ecr → monitoring; `lbc.tf` → LBC IRSA
-role). There is nothing to run by hand between them — one `apply` per env.
-What the apply creates, in order:
+Staging and prod var files are intentionally untracked. Copy
+`terraform/environments/dev/dev.tfvars` to
+`terraform/environments/staging/staging.tfvars` and
+`terraform/environments/prod/prod.tfvars`, then set `env_name`, region,
+CIDR, availability zones, and sizing values for each environment. Keep each
+environment's settings separate. Set `alert_email` in the production tfvars if
+CloudWatch notifications should reach an operator; confirm SNS subscription
+email after apply. `backend.hcl` is not Terraform input; do not put backend
+settings in `.tfvars`.
 
-1. **VPC** — public + private subnets, one NAT gateway (shared), VPC endpoints.
-2. **EKS** — cluster with **private-only** endpoint access, managed node group
-   (both `AmazonEKSWorkerNodePolicy` and `AmazonEKS_CNI_Policy` attached),
-   OIDC provider (for IRSA), pod + node security groups.
-3. **Network** — RDS security group (ingress **only** from the pod SG),
-   ACM certificate + validation records (staging/prod).
-4. **RDS** — PostgreSQL, **private-only** (no public address), write-only
-   password (`random_password` → `password_wo`), KMS-encrypted, least-privilege
-   KMS key policy.
-5. **ECR** — `eks-api-api` repository, scan-on-push, lifecycle policy.
-6. **Monitoring** — CloudWatch alarms (ALB 5xx, RDS CPU/storage, node count,
-   control-plane errors) → SNS topic `<name>-<env>-alerts`.
-7. **LBC** — IRSA role `eks-api-lbc-<env>` for the AWS Load Balancer Controller.
+## 2. Plan and apply each environment
 
-After apply, note the outputs: `cluster_endpoint`, `ecr_repository_url`,
-`lbc_role_arn`, `rds_endpoint` (private), `sns_topic_arn`.
-
-## 3. IAM for CI (OIDC)
-
-Create two roles that trust the GitHub OIDC provider
-(`token.actions.githubusercontent.com`), restricted to your repo:
-
-- **build role** (`AWS_BUILD_ROLE_ARN` in `build.yml`): `ecr:GetAuthorizationToken`,
-  `ecr:BatchCheckLayerAvailability`, `ecr:GetDownloadUrlForLayer`,
-  `ecr:PutImage` on the `eks-api-api` repo.
-- **deploy role** (`AWS_DEPLOY_ROLE_ARN` in `deploy.yml`): minimal — it only
-  opens/updates the deploy PR via the GitHub API (no AWS writes needed beyond
-  reading the image tag it just built).
-
-The repo's **OIDC provider** must be registered with your account
-(`aws iam create-open-id-connect-provider ...` with the standard Actions
-thumbprints), and the role trust policies must pin `sub` to
-`repo:<your-org>/eks-api:ref:refs/heads/main` (build) / `pull_request` (deploy).
-
-## 4. ArgoCD install + repo credentials
-
-ArgoCD is **not** installed by Terraform (it is the GitOps entry point). Install
-it once, in the cluster the env points at:
+Run each environment from a runner that can reach its private EKS endpoint:
 
 ```sh
-# kubeconfig for the cluster (AWS CLI v2):
-aws eks update-kubeconfig --name eks-api-<env> --profile <your-profile>
+make tf-init ENV=dev
+make tf-cluster-plan ENV=dev
+# Review, then create VPC + EKS first. Kubernetes provider needs live cluster data.
+make tf-cluster-apply ENV=dev
+make tf-plan ENV=dev
+# Inspect full plan, then:
+make tf-apply ENV=dev
+```
 
-# Upstream chart, appVersion 3.5.5 (matches apps/argocd/*):
+Repeat both plan/apply phases for staging and prod after creating their backend
+and tfvars files. Terraform's Kubernetes provider depends on live EKS endpoint
+data, so the first targeted VPC/EKS apply makes that provider configuration
+available; the second full apply creates RDS, ECR, monitoring, the DB Secret,
+and LBC IRSA role. Prod enables
+Multi-AZ RDS, deletion protection, and longer backups. Review each plan before
+applying; environment name changes can require resource replacement if state
+already exists.
+
+Record these outputs for later steps:
+
+```sh
+terraform -chdir=terraform/environments/dev output
+```
+
+Use `vpc_id`, `cluster_name`, `ecr_repository_url`, `lbc_role_arn`,
+`acm_certificate_arn`, and `acm_validation_options` as applicable.
+
+## 3. Configure CI permissions
+
+Configure GitHub OIDC trust for the repository. Build role needs ECR push
+permissions on all three repositories (`eks-api-api-dev`,
+`eks-api-api-staging`, `eks-api-api-prod`) plus `ecr:GetAuthorizationToken`.
+Deploy workflow uses `GITHUB_TOKEN` to open/update the dev image PR and does not
+need AWS credentials. Restrict role trust to the repository and intended branch
+or workflow subject.
+
+Set GitHub repository variables:
+
+- `AWS_ACCOUNT_ID`: 12-digit AWS account ID.
+- `AWS_REGION`: region used by Terraform/ECR.
+- `AWS_BUILD_ROLE_ARN`: OIDC role ARN allowed to push those ECR repos.
+
+## 4. Install ArgoCD and select environment root
+
+Install ArgoCD privately from a runner with cluster access. Chart `10.10.3`
+uses ArgoCD app version `3.5.5`:
+
+```sh
+aws eks update-kubeconfig --name eks-api-dev --region "$AWS_REGION"
 helm repo add argo https://argoproj.github.io/argo-helm
 helm repo update
-helm install argocd argo/argo-cd \
+helm upgrade --install argocd argo/argo-cd \
   --namespace argocd --create-namespace \
-  --set argocd.server.service.type=LoadBalancer \
-  --version <chart-version-for-3.5.5>
+  --version 10.10.3 \
+  -f apps/argocd/argocd-values.yaml
 ```
 
-Then give ArgoCD access to the git repo (repo credential, not a token in the
-Application manifests): add the GitHub token as a **repo credential** in the
-ArgoCD UI/CLI (or a `secret` in the `argocd` namespace with
-`argocd.argoproj.io/secret-type: repo-creds`), scoped to read the repo. The
-`AppProject` (`apps/argocd/argocd-project.yaml`) already pins
-`sourceRepos` to this repo.
-
-## 5. ACM certificate (staging/prod)
-
-The `network` module creates the ACM certificate **and** its DNS-01 validation
-records in your hosted zone. You must complete validation (CNAME records) —
-either let the module create the CNAMEs (it emits `acm_validation` with the
-FQDN/resource records) and apply them to your zone, or validate out-of-band.
-Until the certificate is `ISSUED`, the ALB Ingress will not serve TLS.
-
-## 6. First deploy
-
-1. Push the repo to GitHub. The `build.yml` workflow runs on `main`:
-   `go vet` + `go test` → buildx push of `eks-api-api:<sha>` to ECR.
-2. `deploy.yml` (on build success) opens a PR bumping
-   `charts/api/values-dev.yaml` `image.tag` to the new SHA. Review + merge.
-3. ArgoCD detects the change (auto-sync, prune + self-heal) and rolls the
-   `api-dev` deployment. Watch: `kubectl -n api-dev get deploy,ingress` and the
-   ALB DNS from `kubectl -n api-dev get ingress -o wide`.
-4. Smoke test: `curl https://<alb-dns>/healthz` and `/readyz`.
-5. Repeat 2–4 for staging/prod (their `values-<env>.yaml` are bumped by
-   hand/PR — `CODEOWNERS` routes staging/prod value changes to `@org/platform`).
-
-## 7. Teardown
-
-Per env, reverse order (ArgoCD app first so it doesn't re-create resources):
+Keep ArgoCD server internal; use a private access path such as:
 
 ```sh
-# Remove the ArgoCD Application (or let prune handle it on destroy):
-kubectl -n argocd delete application api-<env>   # if it exists
-
-make tf-destroy ENV=<env>
+kubectl -n argocd port-forward svc/argocd-server 8080:443
 ```
 
-Finally, destroy the bootstrap root **only after** all envs are gone:
+Add read-only Git credentials in ArgoCD if the repository is private. In only
+the selected environment's root and child manifests, replace `<org>`, LBC IRSA
+role ARN, VPC ID, and region with real values. Replace the region in the LBC
+chart values too. Apply one root per cluster:
 
 ```sh
-terraform -chdir=terraform/environments/bootstrap destroy
+kubectl apply -f apps/argocd/root-dev.yaml
 ```
 
-## 8. Troubleshooting
+Use `root-staging.yaml` or `root-prod.yaml` only against its matching cluster.
+The root applies its scoped AppProject, then the LBC and API Applications.
 
-| Symptom | Likely cause / fix |
+## 5. Validate ACM DNS and enable TLS
+
+Staging and prod request ACM DNS-validated certificates. Terraform outputs
+`acm_validation_options`; it does not create Route53 records or wait for
+issuance. Create each listed CNAME in the authoritative DNS zone and wait until
+ACM reports `ISSUED`. Then update that environment's
+`charts/api/values-<env>.yaml` `ingress.certArn` with the output ARN and merge
+the reviewed change. Dev currently uses an internal ALB without TLS.
+
+## 6. Deploy and smoke-check API
+
+Set `image.repository` in `charts/api/values-<env>.yaml` to that environment's
+Terraform `ecr_repository_url` output (the checked-in account and region are
+placeholders). Keep `image.tag` as an immutable commit SHA.
+
+Push to `main`. Build workflow runs `go vet` and `go test`, then pushes the
+same immutable commit SHA to each environment's ECR repository. A successful
+build opens a PR updating dev's `image.tag`; merge it to deploy dev. Promote
+that exact SHA to staging and prod with reviewed PRs to their values files.
+
+Check rollout and ingress from a network that can reach the private cluster:
+
+```sh
+kubectl -n api-dev get deploy,service,ingress
+kubectl -n api-dev rollout status deployment/api
+```
+
+Check `/healthz` and `/readyz` through the ALB after ingress has an address.
+`/healthz` proves process liveness; `/readyz` proves DB connectivity and schema
+bootstrap completed.
+
+## 7. ACM / ingress and troubleshooting
+
+| Symptom | Likely cause / action |
 | --- | --- |
-| `terraform init` fails on backend | Bootstrap (step 1) not applied, or `backend_bucket`/`lock_table` in tfvars don't match the real names |
-| ALB never becomes `Active` | LBC not installed (step 4) or IRSA role ARN in `apps/argocd/lbc.yaml` not substituted with the real `lbc_role_arn` |
-| Ingress has no TLS | ACM cert not `ISSUED` (step 5) |
-| API pods `CrashLoopBackOff` on DB | Secret `api-db-credentials` keys must be `host/port/user/password/name`; RDS SG must allow the pod SG |
-| ArgoCD `Unknown host` on repo | Repo credential (step 4) missing/wrong |
-| CI `unable to get password from user` (ECR login) | Build role (step 3) missing `ecr:*` on the repo, or OIDC trust `sub` too broad/narrow |
+| `terraform init` fails | Bootstrap state bucket/table first; check ignored `backend.hcl` values. |
+| Terraform Kubernetes provider cannot connect | Run from inside VPC or a connected VPN/SSM host; cluster endpoint is private. |
+| ALB not created | Check LBC Application health, IRSA role ARN, VPC ID, chart version, and controller logs. |
+| TLS listener missing | ACM DNS CNAME not created, certificate not `ISSUED`, or `ingress.certArn` is still placeholder. |
+| API pod not ready | Check Secret `api-db-credentials`, RDS endpoint/security groups, pod logs, and `/readyz`. |
+| ECR image pull fails | Check image repository/account/region, build role permissions, SHA tag, and node ECR access. |
+| ArgoCD cannot read Git repo | Add read-only repo credentials and verify `<org>`/repo URL. |
+
+## 8. Teardown
+
+Remove the matching ArgoCD root/Application first so GitOps stops reconciling.
+Then review and destroy that environment from a private-network runner:
+
+```sh
+kubectl -n argocd delete application eks-api-dev
+make tf-destroy ENV=dev
+```
+
+Only destroy the bootstrap root after all environment states are removed.

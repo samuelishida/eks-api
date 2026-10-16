@@ -17,13 +17,7 @@ spec:
         {{- with .Values.pod.labels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      annotations:
-        # Required for ALB target-type=ip: the AWS Load Balancer Controller
-        # only targets pods carrying this annotation.
-        aws-load-balancer-web-traffic: "enabled"
-        {{- with .Values.pod.annotations }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
+      annotations: {{ .Values.pod.annotations | toJson }}
     spec:
       securityContext:
         runAsNonRoot: true
@@ -40,6 +34,8 @@ spec:
           env:
             - name: HTTP_ADDR
               value: {{ .Values.httpAddr | quote }}
+            - name: DB_SSLMODE
+              value: {{ .Values.db.sslMode | quote }}
             {{- if not .Values.db.secretExistingName }}
             {{- fail "api: db.secretExistingName must not be empty — the chart references the Terraform-owned DB secret via secretKeyRef and does not create it" }}
             {{- end }}

@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lbc
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: eks-api
+  source:
+    repoURL: "https://aws.github.io/eks-charts"
+    chart: aws-load-balancer-controller
+    targetRevision: "3.6.0"
+    helm:
+      values: |
+        clusterName: eks-api-dev
+        region: us-east-1
+        vpcId: vpc-REPLACE_WITH_TERRAFORM_OUTPUT
+        ingressClass: alb
+        serviceAccount:
+          create: true
+          name: aws-load-balancer-controller
+          annotations:
+            eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/eks-api-dev-lbc-irsa"
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

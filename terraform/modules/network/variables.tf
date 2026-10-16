@@ -19,12 +19,12 @@ variable "vpc_id" {
 }
 
 variable "vpc_cidr" {
-  description = "VPC CIDR (source for the pod-SG ALB rule)."
+  description = "VPC CIDR (source for the workload-node ALB target rule)."
   type        = string
 }
 
-variable "pod_security_group_id" {
-  description = "EKS pod security group ID (RDS SG source + ALB rule target)."
+variable "workload_node_security_group_id" {
+  description = "Additional SG attached to EKS managed workload nodes (RDS source + ALB target rule)."
   type        = string
 }
 
@@ -48,4 +48,10 @@ variable "acm_domain" {
   description = "Domain for the ACM certificate (prod)."
   type        = string
   default     = ""
+}
+
+variable "alb_ingress_rule_description" {
+  description = "Description for the ALB-to-workload ingress security group rule."
+  type        = string
+  default     = "ALB -> workload node IP targets; VPC CIDR used because ALB SG is runtime-created"
 }

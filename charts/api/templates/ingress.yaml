@@ -23,9 +23,7 @@ metadata:
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   rules:
-    {{- if .Values.ingress.host }}
-    - host: {{ .Values.ingress.host }}
-    {{- end }}
+    - host: {{ required "api: ingress.host must be set" .Values.ingress.host | quote }}
       http:
         paths:
           - path: /

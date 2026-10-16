@@ -30,13 +30,13 @@ variable "asg_name" {
 }
 
 variable "alb_name" {
-  description = "ALB name (dimension for the 5xx alarm). Created at runtime by the Load Balancer Controller — fill after first sync."
+  description = "CloudWatch LoadBalancer dimension suffix (app/name/id), filled after first sync."
   type        = string
   default     = ""
 }
 
-variable "target_group_arn" {
-  description = "ALB target-group ARN (dimension for the 5xx alarm). Created at runtime by the Load Balancer Controller — fill after first sync."
+variable "target_group_name" {
+  description = "CloudWatch TargetGroup dimension suffix (targetgroup/name/id), filled after first sync."
   type        = string
   default     = ""
 }
@@ -54,9 +54,9 @@ variable "rds_cpu_threshold" {
 }
 
 variable "rds_free_storage_threshold" {
-  description = "RDS free storage (bytes) below which the alarm triggers. Default 100 GiB."
+  description = "RDS free storage (bytes) below which the alarm triggers. Default 5 GiB."
   type        = number
-  default     = 107374182400
+  default     = 5368709120
 }
 
 variable "node_count_threshold" {
@@ -65,8 +65,8 @@ variable "node_count_threshold" {
   default     = 1
 }
 
-variable "cp_error_threshold" {
-  description = "EKS control-plane error rate that triggers the alarm."
+variable "cp_5xx_threshold" {
+  description = "EKS API-server 5xx requests per 5-minute period that trigger the alarm."
   type        = number
-  default     = 0.01
+  default     = 5
 }

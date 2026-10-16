@@ -1,6 +1,9 @@
 # staging: two replicas, external ALB with TLS (ACM cert in us-east-1).
 replicas: 2
 
+image:
+  repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/eks-api-api-staging
+
 ingress:
   host: "api-staging.example.com"
   tls: true

@@ -25,6 +25,7 @@ kubeconfig
 *.pem
 *.key
 floci.auto.tfvars
+terraform/environments/*/backend.hcl
 
 # Go
 dist/

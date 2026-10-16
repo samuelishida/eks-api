@@ -9,7 +9,8 @@
 ## Goals
 
 - The **API** is reachable from outside (ALB). The **database** is **not** reachable from outside —
-  only the API talks to it, over the private network.
+  accessible only through the private network from the managed workload node group. Standard VPC
+  CNI pods on those nodes share that network boundary.
 - The **DB** has persistent storage (RDS) and the app runs with **several replicas**.
 - **EKS** orchestrates; everything is **Terraform** (IaC) + **Helm** (packaging) + **GitOps** (ArgoCD).
 - The repo is the **single source of truth**; promotion is auditable (PR-gated).
@@ -24,17 +25,18 @@ Create the repo tree, `README`, `Makefile`, `.gitignore`, `.editorconfig`, and t
 ### E2 — Terraform: VPC + EKS (per environment)
 Shared `modules/` (vpc, eks) + per-env roots (`dev`, `staging`, `prod`, `floci`) with real
 S3+DynamoDB backends and pinned providers/modules. Private-only EKS endpoint access; managed node
-group with **both** `AmazonEKSWorkerNodePolicy` and `AmazonEKS_CNI_Policy`; a dedicated pod security
-group.
+group with **both** `AmazonEKSWorkerNodePolicy` and `AmazonEKS_CNI_Policy`; a dedicated security
+group attached to workload nodes (standard VPC CNI pods share node network identity).
 - **Acceptance:** `terraform plan` for `dev` + `floci` succeeds with a coherent VPC+EKS graph; no
   provider block inside any child module; no fake account/bucket placeholders.
 
 ### E3 — Terraform: RDS + network + ECR
-Private-only RDS PostgreSQL (write-only `password_wo`, least-privilege KMS key, SG reachable **only
-from the pod SG**); network module (RDS SG, pod-SG rule for ALB ip-targeting, VPC endpoints, prod ACM
-cert); ECR repo with scan-on-push + lifecycle. The DB password flows into a `kubernetes_secret`.
-- **Acceptance:** `terraform plan` shows RDS in private subnets with the SG rule sourced from the pod
-  SG; `rg "publicly_accessible|public_subnet" terraform/` returns nothing for RDS.
+Private-only RDS PostgreSQL (write-only `password_wo`, KMS key with RDS-scoped grants, SG reachable
+from the workload node group); network module (RDS SG, workload-node rule for ALB IP targeting,
+VPC endpoints, staging/prod ACM cert); ECR repo with scan-on-push + lifecycle. The DB password flows
+into a `kubernetes_secret`.
+- **Acceptance:** `terraform plan` shows RDS in private subnets with SG ingress sourced from the
+  workload node group; `rg "publicly_accessible|public_subnet" terraform/` returns nothing for RDS.
 
 ### E4 — Sample API + Dockerfiles
 A small Go API (chi + pgx) with `/healthz`, `/readyz` (DB-backed), and a minimal CRUD; idempotent
@@ -50,11 +52,11 @@ resources, non-root securityContext, existing-secret reference). Per-env `values
   Secret reference with correct probes/resources/replicas.
 
 ### E6 — GitOps: ArgoCD app-of-apps (+ LBC + namespaces)
-ArgoCD v3.5.5 installed in-cluster; an app-of-apps layout where each env is an `Application` pointing
-at `charts/api/` with env value files; the **AWS Load Balancer Controller** Application is installed
-**before** the api Applications (its IRSA role is created in Terraform).
-- **Acceptance:** `kubectl apply --dry-run=client -f apps/argocd/` accepts the Project + Applications;
-  LBC is a dependency of the api apps, not a sibling.
+ArgoCD v3.5.5 installed in-cluster; one environment-scoped app-of-apps root per cluster reconciles
+the AppProject, AWS Load Balancer Controller Application, and API Application. Sync waves and child
+Application health checks order LBC before API; Terraform creates the LBC IRSA role.
+- **Acceptance:** YAML parses; the matching root applies per cluster; project, LBC, and API sync in
+  wave order. Floci parses these manifests without ArgoCD CRDs.
 
 ### E7 — CI/CD: GitHub Actions
 Build/test/push to ECR via **OIDC** (tag = git SHA); a **PR-gated** deploy workflow that opens a PR
@@ -71,19 +73,18 @@ documented as an optional add-on.
 - **Acceptance:** `terraform plan` shows the SNS topic + alarms with correct metric sources and env
   thresholds.
 
-### E9 — Local validation (Floci)
-Validate the whole stack against the Floci emulator: `terraform apply` (floci) converges, chart +
-ArgoCD manifests apply to k3s, and the API Deployment / `api-db-credentials` Secret / Ingress are
-created with ALB annotations. **Shape** validation only (ECR/RDS have no data plane in Floci).
-- **Acceptance:** `make floci-validate` green; the API pod is **Scheduled** (not-ready expected); the
-  Ingress carries the ALB annotations.
+### E9 — Local validation (Floci + Kind)
+Floci validates Terraform/AWS resource shape, Helm installation, pod scheduling, and ArgoCD
+manifest parsing. Its ECR and RDS emulation has no data plane, so the API pod is expected to remain
+not-ready. Kind runs the built API image with PostgreSQL in an isolated Kubernetes cluster and
+exercises health, readiness, and HTTP CRUD through the API Service. Real AWS remains the check for
+ALB, ECR, RDS, IAM, VPC, and production networking.
+- **Acceptance:** make floci-validate passes shape checks; make kind-e2e passes health/readiness and
+  create/list/get/update/delete/post-delete-404; docs/runbook-aws.md covers AWS behavior.
 
-### E10 — Docs: runbook + AI deliverable
-`docs/runbook-aws.md` (real-AWS apply, state bootstrap first), `docs/ai-assistant.md` (the
-Generative-AI deliverable: prompt, output, validation/correction/assessment), `docs/architecture.md`
-(diagram + decisions).
-- **Acceptance:** a reviewer can follow the runbook top-to-bottom; the AI deliverable is complete and
-  consistent with the validated repo.
+### E10 — Docs: runbooks + AI deliverable
+docs/runbook-aws.md covers the real-AWS deployment path; docs/floci.md and docs/kind.md explain complementary local validation; docs/architecture.md records system decisions; docs/ai-assistant.md captures the AI deliverable and validation history.
+- **Acceptance:** reviewers can follow the AWS runbook and local checks; docs match validated behavior and limits.
 
 ## Non-goals (out of scope)
 

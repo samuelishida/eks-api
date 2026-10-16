@@ -1,69 +1,39 @@
-# ArgoCD app-of-apps (Inc 6)
+# ArgoCD app-of-apps
 
-GitOps layer for the eks-api repo. The git repo is the single source of truth:
-ArgoCD watches it and syncs the `AppProject` `eks-api` (this directory) into
-the cluster.
+Each EKS cluster gets one environment root (`root-dev.yaml`, `root-staging.yaml`,
+or `root-prod.yaml`). Apply only the matching root to that cluster. The root
+creates a scoped `AppProject`, then reconciles the AWS Load Balancer Controller
+and that cluster's API chart. This keeps dev, staging, and prod clusters from
+deploying each other's workloads.
 
-## ArgoCD installation
+## Bootstrap
 
-ArgoCD itself is installed once per cluster from the upstream `argo-cd` Helm
-chart (appVersion `3.5.5`), into its own `argocd` namespace. It is NOT
-managed by this app-of-apps (it is the bootstrap tool, not a workload):
+1. Install ArgoCD chart `argo/argo-cd` version `10.10.3` (app version `3.5.5`)
+   with `argocd-values.yaml`. This restores health reporting for child
+   `Application` resources, which makes the sync waves below wait for LBC
+   health before syncing the API app.
+2. Add read-only credentials for this Git repository to ArgoCD if it is private.
+3. Replace `<org>` in the selected root, project, and API app manifests.
+4. Replace the LBC role ARN and VPC ID with that environment's Terraform
+   outputs, then apply the matching root manifest:
 
-```sh
-helm repo add https://argo-cd.readthedocs.io/
-helm install argocd https://argo-cd.readthedocs.io/argo-cd \
-  --version 3.55.5 --namespace argocd --create-namespace
-```
+   ```sh
+   kubectl apply -f apps/argocd/root-dev.yaml
+   ```
 
-Repo-credential provisioning (e.g. an `argocd` GitHub App / PAT stored as an
-ArgoCD `Repo` secret) is covered by the runbook — see `docs/` and the
-bootstrap runbook.
+The root app path is environment-scoped under `environments/<env>/`. It applies
+the project at wave `-2`, LBC at wave `-1`, then API at wave `0`. ArgoCD's
+Application health customization is required for those waves to wait for child
+apps to become healthy.
 
-## How the app-of-apps works
+## Promotion
 
-Everything in this directory is synced by ArgoCD:
+- **dev**: successful builds on `main` open a PR that updates
+  `charts/api/values-dev.yaml` to the immutable image SHA. Merge that PR to
+  deploy.
+- **staging/prod**: promote the same SHA with reviewed PRs to the corresponding
+  values file. CI pushes that SHA to each environment's ECR repository.
 
-1. `argocd-project.yaml` — the `AppProject` `eks-api`: scopes source repos
-   (this repo + the upstream LBC chart repo), destinations (in-cluster,
-   `api-*` + `kube-system`), and a narrow cluster-resource whitelist
-   (Namespaces + the LBC's ClusterRole/ClusterRoleBinding).
-2. `lbc.yaml` — installs the **AWS Load Balancer Controller** from the
-   official upstream chart (`v3.6.0`) into `kube-system`. **This must sync
-   BEFORE the api applications**: the api chart's ALB `Ingress` is only
-   reconciled once the controller is running.
-3. `api-dev.yaml` / `api-staging.yaml` / `api-prod.yaml` — one `Application`
-   per environment, each deploying `charts/api` with
-   `valueFiles: [values.yaml, values-<env>.yaml]` (base first, then the env
-   override). Each targets its own namespace (`api-dev`, `api-staging`,
-   `api-prod`) with `createNamespace: true` + `syncOptions:
-   CreateNamespace=true`, and `autoSync` with `prune` + `selfHeal`.
-4. `namespace-<env>.yaml` — the `api-*` namespaces as the declarative source
-   of truth (ArgoCD also creates them via `createNamespace`; the manifests
-   keep the namespaces and their labels in git).
-
-## Promotion policy
-
-- **dev**: auto-syncs on `main` (any merge to `main` deploys to dev).
-- **staging / prod**: promote via a separate, human-reviewed PR that bumps
-  the image tag in `values-staging.yaml` / `values-prod.yaml` (Inc 7 wires
-  the CI that opens that PR). Prod is never auto-synced from `main`.
-
-## LBC IRSA role ARN placeholder
-
-`lbc.yaml` sets
-`serviceAccount.annotations."eks.amazonaws.com/role-arn"` to the placeholder
-`arn:aws:iam::123456789012:role/eks-api-lbc-irsa`. **It must be replaced with
-the Terraform output `lbc_role_arn`** (the env-level `aws_iam_role.lbc` in
-`terraform/environments/<env>/lbc.tf`) for each real account before syncing.
-The trust policy on that role federates the cluster's OIDC provider to the
-`kube-system/aws-load-balancer-controller` service account, so the ARN and
-the service account must match exactly.
-
-## LBC egress path
-
-The LBC (and the cluster's control plane) call the EC2/ELB/ECS APIs from the
-**private** subnets. Those egress calls reach AWS through the **NAT gateway**
-in the public subnets. Dropping the NAT gateway in prod would break the LBC
-(it would no longer be able to manage the ALB) — keep the NAT even in
-cost-optimized prod.
+Terraform creates one ECR repository and one LBC IRSA role per environment.
+The LBC chart uses the official `https://aws.github.io/eks-charts` repository
+and creates its annotated ServiceAccount itself.

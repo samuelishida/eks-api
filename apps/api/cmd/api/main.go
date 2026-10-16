@@ -27,9 +27,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	// Readiness gate: build the pool, ping, and run the idempotent schema
-	// bootstrap before the server accepts traffic. Liveness (/healthz)
-	// does not depend on this — it only reports the process is up.
+	// Build the pool without blocking HTTP startup on database availability.
+	// /healthz remains live while Initialize retries; /readyz stays 503.
 	db, err := internal.New(ctx, cfg)
 	if err != nil {
 		log.Fatalf("db: %v", err)
@@ -49,6 +48,26 @@ func main() {
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
+
+	go func() {
+		dbInitTicker := time.NewTicker(5 * time.Second)
+		defer dbInitTicker.Stop()
+		for {
+			initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err := db.Initialize(initCtx)
+			cancel()
+			if err == nil {
+				log.Printf("db: ready")
+				return
+			}
+			log.Printf("db: initialization pending: %v", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-dbInitTicker.C:
+			}
+		}
+	}()
 
 	go func() {
 		log.Printf("api: listening on %s", cfg.HTTPAddr)

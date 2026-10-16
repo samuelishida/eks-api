@@ -3,6 +3,16 @@ variable "name" {
   type        = string
 }
 
+variable "resource_name" {
+  description = "Globally unique name for AWS resources, including environment."
+  type        = string
+}
+
+variable "region" {
+  description = "AWS region, used to scope KMS grant use to RDS in this region."
+  type        = string
+}
+
 variable "env" {
   description = "Environment name (dev/staging/prod/floci)."
   type        = string
@@ -45,6 +55,12 @@ variable "max_allocated_storage" {
   description = "Max auto-scaling storage (GiB). 0 disables autoscaling."
   type        = number
   default     = 50
+}
+
+variable "storage_type" {
+  description = "RDS storage type. Real environments use gp3; Floci keeps gp2 because it cannot apply storage type changes."
+  type        = string
+  default     = "gp3"
 }
 
 variable "multi_az" {
@@ -96,9 +112,4 @@ variable "db_subnet_group_name" {
 variable "vpc_security_group_ids" {
   description = "Security group IDs for the RDS instance (the RDS SG from the network module)."
   type        = list(string)
-}
-
-variable "node_iam_role_arn" {
-  description = "EKS node IAM role ARN (allowed to use the KMS key)."
-  type        = string
 }

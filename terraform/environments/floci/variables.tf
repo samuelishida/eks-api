@@ -75,7 +75,7 @@ variable "floci_k8s_token" {
 }
 
 variable "lbc_create_aws_managed_policy" {
-  description = "Attach the AWS-managed LBC policy. Floci's IAM has no AWS-managed policies, so set false there (the inline LBC policy already covers the actions)."
+  description = "Deprecated and ignored; retained for compatibility with existing local Floci tfvars."
   type        = bool
-  default     = true
+  default     = false
 }

@@ -18,6 +18,7 @@ type Config struct {
 	DBUser     string
 	DBPassword string
 	DBName     string
+	DBSSLMode  string
 }
 
 // String is safe for logging: the password is never included.
@@ -28,9 +29,14 @@ func (c Config) String() string {
 
 // DSN returns the Postgres connection string. Callers must not log it.
 func (c Config) DSN() string {
-	return "postgres://" + url.UserPassword(c.DBUser, c.DBPassword).String() +
-		"@" + net.JoinHostPort(c.DBHost, strconv.Itoa(c.DBPort)) +
-		"/" + c.DBName + "?sslmode=disable"
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(c.DBUser, c.DBPassword),
+		Host:     net.JoinHostPort(c.DBHost, strconv.Itoa(c.DBPort)),
+		Path:     "/" + c.DBName,
+		RawQuery: url.Values{"sslmode": {c.DBSSLMode}}.Encode(),
+	}
+	return u.String()
 }
 
 // Load reads configuration from the environment. Discrete DB_* variables
@@ -46,11 +52,11 @@ func Load() (Config, error) {
 		if u.Scheme != "postgres" && u.Scheme != "postgresql" {
 			return Config{}, fmt.Errorf("config: DATABASE_URL scheme %q is not postgres/postgresql", u.Scheme)
 		}
-		host, port, err := net.SplitHostPort(u.Host)
-		if err != nil && u.Host != "" {
-			return Config{}, fmt.Errorf("config: DATABASE_URL host %q: %w", u.Host, err)
+		cfg.DBHost = u.Hostname()
+		if u.Host != "" && cfg.DBHost == "" {
+			return Config{}, fmt.Errorf("config: DATABASE_URL host %q is invalid", u.Host)
 		}
-		cfg.DBHost = host
+		port := u.Port()
 		if port == "" {
 			port = "5432" // Postgres default when the URL omits the port
 		}
@@ -59,6 +65,7 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: DATABASE_URL port %q: %w", port, err)
 		}
 		cfg.DBName = strings.TrimPrefix(u.Path, "/")
+		cfg.DBSSLMode = u.Query().Get("sslmode")
 		if u.User != nil {
 			cfg.DBUser = u.User.Username()
 			if pw, ok := u.User.Password(); ok {
@@ -80,6 +87,10 @@ func Load() (Config, error) {
 	cfg.DBUser = envOr("DB_USER", cfg.DBUser)
 	cfg.DBPassword = envOr("DB_PASSWORD", cfg.DBPassword)
 	cfg.DBName = envOr("DB_NAME", cfg.DBName)
+	cfg.DBSSLMode = envOr("DB_SSLMODE", cfg.DBSSLMode)
+	if cfg.DBSSLMode == "" {
+		cfg.DBSSLMode = "require"
+	}
 	cfg.HTTPAddr = envOr("HTTP_ADDR", ":8080")
 
 	if cfg.DBHost == "" {
@@ -90,6 +101,11 @@ func Load() (Config, error) {
 	}
 	if cfg.DBName == "" {
 		return Config{}, errors.New("config: DB name is required (set DB_NAME or a database path in DATABASE_URL)")
+	}
+	switch cfg.DBSSLMode {
+	case "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
+	default:
+		return Config{}, fmt.Errorf("config: DB_SSLMODE %q is invalid", cfg.DBSSLMode)
 	}
 	return cfg, nil
 }
